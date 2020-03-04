@@ -780,7 +780,7 @@ def extractLogMessageFromGitCommit(commit):
        logMessage += log
     return logMessage
 
-def extractSettingsGitLog(log):
+def extractSettingsFromGitLog(log):
     values = {}
     for line in log.split("\n"):
         line = line.strip()
@@ -804,6 +804,11 @@ def extractSettingsGitLog(log):
     if paths:
         values['depot-paths'] = paths.split(',')
     return values
+
+def extractSettingsFromGitCommit(commit):
+    log = extractLogMessageFromGitCommit(commit)
+    settings = extractSettingsFromGitLog(log)
+    return settings
 
 def gitBranchExists(branch):
     proc = subprocess.Popen(["git", "rev-parse", branch],
@@ -905,8 +910,7 @@ def findUpstreamBranchPoint(head = "HEAD"):
     branchByDepotPath = {}
     for branch in branches.keys():
         tip = branches[branch]
-        log = extractLogMessageFromGitCommit(tip)
-        settings = extractSettingsGitLog(log)
+        settings = extractSettingsFromGitCommit(tip)
         if "depot-paths" in settings:
             paths = ",".join(settings["depot-paths"])
             branchByDepotPath[paths] = "remotes/p4/" + branch
@@ -915,8 +919,7 @@ def findUpstreamBranchPoint(head = "HEAD"):
     parent = 0
     while parent < 65535:
         commit = head + "~%s" % parent
-        log = extractLogMessageFromGitCommit(commit)
-        settings = extractSettingsGitLog(log)
+        settings = extractSettingsFromGitCommit(commit)
         if "depot-paths" in settings:
             paths = ",".join(settings["depot-paths"])
             if paths in branchByDepotPath:
@@ -942,7 +945,7 @@ def createOrUpdateBranchesFromOrigin(localRefPrefix = "refs/remotes/p4/", silent
         remoteHead = localRefPrefix + headName
         originHead = line
 
-        original = extractSettingsGitLog(extractLogMessageFromGitCommit(originHead))
+        original = extractSettingsFromGitCommit(originHead)
         if ('depot-paths' not in original
             or 'change' not in original):
             continue
@@ -953,7 +956,7 @@ def createOrUpdateBranchesFromOrigin(localRefPrefix = "refs/remotes/p4/", silent
                 print("creating %s" % remoteHead)
             update = True
         else:
-            settings = extractSettingsGitLog(extractLogMessageFromGitCommit(remoteHead))
+            settings = extractSettingsFromGitCommit(remoteHead)
             if 'change' in settings:
                 if settings['depot-paths'] == original['depot-paths']:
                     originP4Change = int(original['change'])
@@ -1473,8 +1476,7 @@ class P4RollBack(Command):
             if self.rollbackLocalBranches or (line.startswith("p4/") and line != "p4/HEAD\n"):
                 line = line.strip()
                 ref = refPrefix + line
-                log = extractLogMessageFromGitCommit(ref)
-                settings = extractSettingsGitLog(log)
+                settings = extractSettingsFromGitCommit(ref)
 
                 depotPaths = settings['depot-paths']
                 change = settings['change']
@@ -1492,8 +1494,7 @@ class P4RollBack(Command):
                     if self.verbose:
                         print("%s is at %s ; rewinding towards %s" % (ref, change, maxChange))
                     system("git update-ref %s \"%s^\"" % (ref, ref))
-                    log = extractLogMessageFromGitCommit(ref)
-                    settings =  extractSettingsGitLog(log)
+                    settings = extractSettingsFromGitCommit(ref)
 
 
                     depotPaths = settings['depot-paths']
@@ -2148,8 +2149,7 @@ class P4Submit(Command, P4UserMap):
                 continue
 
             # Get the p4 commit this corresponds to
-            logMessage = extractLogMessageFromGitCommit(name)
-            values = extractSettingsGitLog(logMessage)
+            values = extractSettingsFromGitCommit(name)
 
             if 'change' not in values:
                 # a tag pointing to something not sent to p4; ignore
@@ -3348,8 +3348,7 @@ class P4Sync(Command, P4UserMap):
                 if self.verbose:
                     print("argh")
                 return ""
-            log = extractLogMessageFromGitCommit(next)
-            settings = extractSettingsGitLog(log)
+            settings = extractSettingsFromGitCommit(next)
             currentChange = int(settings['change'])
             if self.verbose:
                 print("current change %s" % currentChange)
@@ -3700,9 +3699,7 @@ class P4Sync(Command, P4UserMap):
 
             p4Change = 0
             for branch in self.p4BranchesInGit:
-                logMsg =  extractLogMessageFromGitCommit(self.refPrefix + branch)
-
-                settings = extractSettingsGitLog(logMsg)
+                settings = extractSettingsFromGitCommit(self.refPrefix + branch)
 
                 self.readOptions(settings)
                 if ('depot-paths' in settings
@@ -4025,8 +4022,7 @@ class P4Unshelve(Command):
         """
 
         for parent in (range(65535)):
-            log = extractLogMessageFromGitCommit("{0}^{1}".format(starting_point, parent))
-            settings = extractSettingsGitLog(log)
+            settings = extractSettingsFromGitCommit("{0}^{1}".format(starting_point, parent))
             if 'change' in settings:
                 return settings
 
@@ -4124,8 +4120,7 @@ class P4Branches(Command):
                 continue
             branch = line
 
-            log = extractLogMessageFromGitCommit("refs/remotes/%s" % branch)
-            settings = extractSettingsGitLog(log)
+            settings = extractSettingsFromGitCommit("refs/remotes/%s" % branch)
 
             print("%s <= %s (%s)" % (branch, ",".join(settings["depot-paths"]), settings["change"]))
         return True
