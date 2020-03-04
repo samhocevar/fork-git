@@ -1886,13 +1886,27 @@ class P4Submit(Command, P4UserMap):
         filesToChangeExecBit = {}
         all_files = list()
 
-        for line in diff:
+        def handleDiffTreeLine(line, prefix=''):
             diff = parseDiffTreeEntry(line)
             modifier = diff['status']
-            path = diff['src']
+            path = prefix + diff['src']
             all_files.append(path)
 
-            if modifier == "M":
+            # This is necessary because git diff-tree can recurse into subtrees but not submodules.
+            if '160000' in (diff['src_mode'], diff['dst_mode']):
+                new_prefix = ''
+                src_sha1, dst_sha1 = diff['src_sha1'], diff['dst_sha1']
+                # This does not work because git submodule foreach does not honour $GIT_DIR
+                #diff = read_pipe_lines("git submodule foreach --recursive 'git diff-tree -r %s %s %s || :'" % (self.diffOpts, src_sha1, dst_sha1))
+                diff = read_pipe_lines("(cd $GIT_DIR/.. && git submodule foreach --recursive 'git diff-tree -r %s %s %s || :')" % (self.diffOpts, src_sha1, dst_sha1))
+                for line in diff:
+                    m = re.match(r"^Entering '(.*)'$", line)
+                    if m:
+                        new_prefix = m.group(1) + '/'
+                    else:
+                        handleDiffTreeLine(line, prefix + new_prefix)
+
+            elif modifier == "M":
                 p4_edit(path)
                 if isModeExecChanged(diff['src_mode'], diff['dst_mode']):
                     filesToChangeExecBit[path] = diff['dst_mode']
@@ -1912,7 +1926,7 @@ class P4Submit(Command, P4UserMap):
                 if path in filesToAdd:
                     filesToAdd.remove(path)
             elif modifier == "C":
-                src, dest = diff['src'], diff['dst']
+                src, dest = prefix + diff['src'], prefix + diff['dst']
                 all_files.append(dest)
                 p4_integrate(src, dest)
                 pureRenameCopy.add(dest)
@@ -1929,7 +1943,7 @@ class P4Submit(Command, P4UserMap):
                 os.unlink(dest)
                 editedFiles.add(dest)
             elif modifier == "R":
-                src, dest = diff['src'], diff['dst']
+                src, dest = prefix + diff['src'], prefix + diff['dst']
                 all_files.append(dest)
                 if self.p4HasMoveCommand:
                     p4_edit(src)        # src must be open before move
@@ -1954,6 +1968,9 @@ class P4Submit(Command, P4UserMap):
                 filesToChangeType.add(path)
             else:
                 die("unknown modifier %s for %s" % (modifier, path))
+
+        for line in diff:
+            handleDiffTreeLine(line)
 
         diffcmd = "git diff-tree --full-index -p \"%s\"" % (id)
         patchcmd = diffcmd + " | git apply "
