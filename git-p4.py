@@ -808,6 +808,14 @@ def extractSettingsFromGitLog(log):
 def extractSettingsFromGitCommit(commit):
     log = extractLogMessageFromGitCommit(commit)
     settings = extractSettingsFromGitLog(log)
+
+    # Look for a git-p4 marker tag
+    for line in read_pipe_lines(["git", "tag", "--points-at", commit]):
+        m = re.search (r"^git-p4@([1-9][0-9]*)$", line)
+        if not m:
+            continue
+        settings['change'] = m.group(1)
+
     return settings
 
 def gitBranchExists(branch):
@@ -914,6 +922,12 @@ def findUpstreamBranchPoint(head = "HEAD"):
         if "depot-paths" in settings:
             paths = ",".join(settings["depot-paths"])
             branchByDepotPath[paths] = "remotes/p4/" + branch
+
+    # if no depot-path references this branch, pick the first one
+    # FIXME: maybe we should look for a specific tag?
+    if not branchByDepotPath:
+        for branch, tip in branches.iteritems():
+            return ["remotes/p4/" + branch, extractSettingsFromGitCommit(tip)]
 
     settings = None
     parent = 0
@@ -2223,7 +2237,10 @@ class P4Submit(Command, P4UserMap):
                 die("%s is not in git-p4.allowSubmit" % self.master)
 
         [upstream, settings] = findUpstreamBranchPoint()
-        self.depotPath = settings['depot-paths'][0]
+        if 'depot-paths' in settings:
+            self.depotPath = settings['depot-paths'][0]
+        else:
+            self.depotPath = '//'
         if len(self.origin) == 0:
             self.origin = upstream
 
